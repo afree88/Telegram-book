@@ -687,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
   el.fileSearchInput.addEventListener('input', renderFilesList);
 
   // -------------------------------------------------------------
-  // Send Single File
+  // Send Single File  (passes config inline — no server session)
   // -------------------------------------------------------------
   async function sendSingleFile(fileId, fileName, customTitle, btn) {
     if (!state.config.botToken || !state.config.chatId) {
@@ -697,19 +697,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     btn.disabled = true;
-    updateFileStatus(fileId, 'downloading', 'Iniciando...');
+    updateFileStatus(fileId, 'downloading', 'Enviando...');
 
     try {
       const res = await fetch('/api/telegram/send-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, fileName, customTitle })
+        body: JSON.stringify({ fileId, fileName, customTitle, config: state.config })
       });
       const data = await res.json();
 
       if (data.success) {
         updateFileStatus(fileId, 'success', 'Enviado ✅');
-        showToast(`"${fileName}" enviado com sucesso ao Telegram!`, 'success');
+        showToast(`"${customTitle || fileName}" enviado com sucesso!`, 'success');
       } else {
         throw new Error(data.error);
       }
@@ -722,8 +722,170 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // -------------------------------------------------------------
-  // Batch Queue
+  // Batch Queue  (runs entirely in the browser — no server state)
   // -------------------------------------------------------------
+  let batchCancelRequested = false;
+  let batchPauseAction = null; // Promise resolver when paused
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function runBrowserBatch(items) {
+    const config = state.config;
+    const maxRetries = parseInt(config.maxRetries || 3, 10);
+    const onErrorAction = config.onErrorAction || 'pause';
+    const delayMs = Math.max(1000, (parseInt(config.delaySeconds || 3, 10)) * 1000);
+
+    state.batch.isRunning = true;
+    state.batch.total = items.length;
+    state.batch.completed = 0;
+    state.batch.failedItems = [];
+    batchCancelRequested = false;
+
+    el.batchCard.classList.remove('hidden');
+    if (el.batchTitle) el.batchTitle.textContent = '⏳ Enviando em lote...';
+    if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
+    el.batchCard.scrollIntoView({ behavior: 'smooth' });
+    updateBatchUI(0, items.length, 'Iniciando...');
+    updateSelectionButtons();
+    addLog(`Iniciando lote de ${items.length} arquivo(s). Tentativas: ${maxRetries}, Ação em erro: ${onErrorAction}`, 'info');
+
+    for (let i = 0; i < items.length; i++) {
+      if (batchCancelRequested) {
+        addLog('Envio em lote cancelado pelo usuário.', 'warn');
+        showToast(`Lote cancelado após o item ${i}.`, 'info');
+        break;
+      }
+
+      const item = items[i];
+      let success = false;
+      let lastError = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        if (batchCancelRequested) break;
+
+        const attemptText = maxRetries > 1 ? ` (Tentativa ${attempt}/${maxRetries})` : '';
+        updateFileStatus(item.id, 'downloading', `Enviando${attemptText}...`);
+        updateBatchUI(state.batch.completed, items.length,
+          `[${i + 1}/${items.length}] ${item.customTitle || item.name}${attemptText}`);
+        addLog(`[${item.name}] Tentativa ${attempt}/${maxRetries}...`, 'info');
+
+        try {
+          const res = await fetch('/api/telegram/send-single', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileId: item.id,
+              fileName: item.name,
+              customTitle: item.customTitle,
+              config: state.config
+            })
+          });
+          const data = await res.json();
+
+          // Rate limit: wait and retry without consuming attempt
+          if (res.status === 429 && data.retryAfter) {
+            const waitSec = (data.retryAfter || 5) + 1;
+            addLog(`Rate limit do Telegram! Aguardando ${waitSec}s...`, 'warn');
+            updateBatchUI(state.batch.completed, items.length,
+              `⏳ Rate limit! Aguardando ${waitSec}s...`);
+            await sleep(waitSec * 1000);
+            attempt--;
+            continue;
+          }
+
+          if (!data.success) throw new Error(data.error);
+
+          updateFileStatus(item.id, 'success', 'Enviado ✅');
+          state.batch.completed++;
+          updateBatchUI(state.batch.completed, items.length, `✅ Enviado: ${item.customTitle || item.name}`);
+          addLog(`[${item.name}] ✅ Enviado com sucesso!`, 'success');
+          success = true;
+          break;
+
+        } catch (err) {
+          lastError = err;
+          addLog(`[${item.name}] ⚠️ Tentativa ${attempt}/${maxRetries} falhou: ${err.message}`, 'warn');
+
+          if (attempt < maxRetries && !batchCancelRequested) {
+            const backoffSec = attempt * 3;
+            addLog(`Aguardando ${backoffSec}s antes da próxima tentativa...`, 'info');
+            updateBatchUI(state.batch.completed, items.length,
+              `⏳ Aguardando ${backoffSec}s antes de nova tentativa...`);
+            await sleep(backoffSec * 1000);
+          }
+        }
+      }
+
+      if (!success && !batchCancelRequested) {
+        updateFileStatus(item.id, 'error', 'Falhou');
+        state.batch.failedItems.push(item);
+        addLog(`[${item.name}] ❌ Todas as ${maxRetries} tentativas falharam: ${lastError?.message}`, 'error');
+
+        if (onErrorAction === 'pause') {
+          // Show pause alert and wait for user action
+          if (el.batchTitle) el.batchTitle.textContent = '⚠️ Fila Pausada — Aguardando Decisão';
+          if (el.batchPauseAlert) el.batchPauseAlert.classList.remove('hidden');
+          if (el.pauseAlertMessage) {
+            el.pauseAlertMessage.textContent = `"${item.customTitle || item.name}" falhou: ${lastError?.message}. O que deseja fazer?`;
+          }
+          addLog(`Fila pausada. Aguardando decisão do usuário...`, 'warn');
+
+          const userAction = await new Promise(resolve => {
+            batchPauseAction = resolve;
+          });
+          batchPauseAction = null;
+          if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
+          if (el.batchTitle) el.batchTitle.textContent = '⏳ Enviando em lote...';
+
+          if (userAction === 'retry') {
+            addLog(`Retentando "${item.name}" por solicitação do usuário...`, 'info');
+            state.batch.failedItems.pop(); // remove from failed since we retry
+            i--; // repeat this item
+            continue;
+          } else if (userAction === 'skip') {
+            addLog(`"${item.name}" pulado pelo usuário.`, 'info');
+            showToast('Arquivo pulado, continuando...', 'info');
+          } else if (userAction === 'cancel') {
+            addLog('Fila cancelada pelo usuário.', 'warn');
+            showToast('Fila cancelada.', 'info');
+            batchCancelRequested = true;
+            break;
+          }
+
+        } else if (onErrorAction === 'stop') {
+          addLog(`Fila interrompida por erro em "${item.name}".`, 'error');
+          showToast(`Fila parada por erro: ${lastError?.message}`, 'error');
+          break;
+        }
+        // 'continue': just goes to next
+      }
+
+      // Delay between files
+      if (i < items.length - 1 && !batchCancelRequested) {
+        await sleep(delayMs);
+      }
+    }
+
+    // Finished
+    state.batch.isRunning = false;
+    batchCancelRequested = false;
+    const failedCount = state.batch.failedItems.length;
+
+    if (failedCount > 0) {
+      updateBatchUI(state.batch.total - failedCount, state.batch.total, `Lote finalizado com ${failedCount} falha(s).`);
+      if (el.btnRetryFailed) el.btnRetryFailed.classList.remove('hidden');
+      if (el.btnRetryFailedText) el.btnRetryFailedText.textContent = `Reenviar Falhas (${failedCount})`;
+      showToast(`Lote finalizado com ${failedCount} falha(s).`, 'warn', 7000);
+      addLog(`Lote finalizado. Falhas: ${failedCount}`, 'warn');
+    } else {
+      updateBatchUI(state.batch.total, state.batch.total, '✅ Todos enviados com sucesso!');
+      showToast('Envio em lote concluído com sucesso!', 'success');
+      addLog('Lote finalizado sem falhas!', 'success');
+      setTimeout(() => el.batchCard.classList.add('hidden'), 5000);
+    }
+    updateSelectionButtons();
+  }
+
   el.btnSendSelected.addEventListener('click', async () => {
     if (state.selectedIds.size === 0) return;
 
@@ -747,43 +909,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (itemsToSend.length === 0) return;
-
-    state.batch.isRunning = true;
-    state.batch.total = itemsToSend.length;
-    state.batch.completed = 0;
-
-    el.btnSendSelected.disabled = true;
-    el.batchCard.classList.remove('hidden');
-    el.batchCard.scrollIntoView({ behavior: 'smooth' });
-
-    updateBatchUI(0, itemsToSend.length, 'Iniciando envio em lote...');
-
-    try {
-      const res = await fetch('/api/telegram/send-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: itemsToSend })
-      });
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error);
-      }
-    } catch (err) {
-      showToast('Falha ao iniciar lote: ' + err.message, 'error');
-      state.batch.isRunning = false;
-      el.batchCard.classList.add('hidden');
-      updateSelectionButtons();
-    }
+    runBrowserBatch(itemsToSend);
   });
 
   // Cancel Batch
-  el.btnCancelBatch.addEventListener('click', async () => {
-    try {
-      await fetch('/api/telegram/cancel-batch', { method: 'POST' });
-      showToast('Cancelamento do lote solicitado...', 'info');
-    } catch (e) {
-      console.error(e);
-    }
+  el.btnCancelBatch.addEventListener('click', () => {
+    batchCancelRequested = true;
+    if (batchPauseAction) batchPauseAction('cancel');
+    showToast('Cancelamento solicitado...', 'info');
   });
 
   function updateBatchUI(completed, total, currentText) {
@@ -810,191 +943,38 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // -------------------------------------------------------------
-  // Server-Sent Events (SSE) Listener
-  // -------------------------------------------------------------
-  function setupSSE() {
-    const sse = new EventSource('/api/events');
-
-    sse.addEventListener('log', (e) => {
-      const { timestamp, message, type } = JSON.parse(e.data);
-      addLog(message, type, timestamp);
-    });
-
-    sse.addEventListener('batch_started', (e) => {
-      const { total } = JSON.parse(e.data);
-      state.batch.isRunning = true;
-      state.batch.total = total;
-      state.batch.completed = 0;
-      el.batchCard.classList.remove('hidden');
-      updateBatchUI(0, total, 'Iniciando fila...');
-    });
-
-    sse.addEventListener('item_start', (e) => {
-      const { index, fileId, fileName, attempt, maxRetries } = JSON.parse(e.data);
-      state.batch.currentId = fileId;
-      updateFileStatus(fileId, 'downloading', 'Baixando do Drive...');
-      const attemptText = (maxRetries && maxRetries > 1 && attempt) ? ` (Tentativa ${attempt}/${maxRetries})` : '';
-      updateBatchUI(state.batch.completed, state.batch.total, `[${index + 1}/${state.batch.total}] Processando: ${fileName}${attemptText}`);
-    });
-
-    sse.addEventListener('item_progress', (e) => {
-      const { fileId, percent, text, stage } = JSON.parse(e.data);
-      updateFileStatus(fileId, stage === 'uploading' ? 'uploading' : 'downloading', text, percent);
-    });
-
-    sse.addEventListener('item_success', (e) => {
-      const { fileId, fileName } = JSON.parse(e.data);
-      updateFileStatus(fileId, 'success', 'Enviado ✅');
-      state.batch.completed++;
-      updateBatchUI(state.batch.completed, state.batch.total, `✅ Enviado: ${fileName}`);
-    });
-
-    sse.addEventListener('item_error', (e) => {
-      const { fileId, fileName, error } = JSON.parse(e.data);
-      updateFileStatus(fileId, 'error', 'Erro no envio');
-      showToast(`Falha em "${fileName}": ${error}`, 'error');
-    });
-
-    sse.addEventListener('item_rate_limit', (e) => {
-      const { waitSeconds } = JSON.parse(e.data);
-      updateBatchUI(state.batch.completed, state.batch.total,
-        `⏳ Rate limit do Telegram detectado! Aguardando ${waitSeconds}s...`);
-      addLog(`Rate limit: aguardando ${waitSeconds} segundos antes de continuar...`, 'warn');
-    });
-
-    sse.addEventListener('batch_paused', (e) => {
-      const { fileName, error } = JSON.parse(e.data);
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.remove('hidden');
-      if (el.pauseAlertMessage) {
-        el.pauseAlertMessage.textContent = `"${fileName}" falhou após todas as tentativas: ${error}. O que deseja fazer?`;
-      }
-      if (el.batchTitle) el.batchTitle.textContent = '⚠️ Fila Pausada — Aguardando Decisão';
-      addLog(`Fila pausada: "${fileName}" falhou. Aguardando ação do usuário...`, 'warn');
-    });
-
-    sse.addEventListener('batch_stopped_on_error', (e) => {
-      const { fileName, error } = JSON.parse(e.data);
-      state.batch.isRunning = false;
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
-      el.batchCard.classList.add('hidden');
-      showToast(`Fila interrompida por erro em "${fileName}".`, 'error');
-      addLog(`Fila interrompida por erro: ${error}`, 'error');
-      updateSelectionButtons();
-    });
-
-    sse.addEventListener('batch_finished', (e) => {
-      const data = JSON.parse(e.data || '{}');
-      const failedCount = data.failedCount || 0;
-      const failedItems = data.failedItems || [];
-      state.batch.isRunning = false;
-      state.batch.failedItems = failedItems;
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
-      if (failedCount > 0) {
-        updateBatchUI(state.batch.total - failedCount, state.batch.total, `Lote finalizado com ${failedCount} falha(s).`);
-        if (el.btnRetryFailed) el.btnRetryFailed.classList.remove('hidden');
-        if (el.btnRetryFailedText) el.btnRetryFailedText.textContent = `Reenviar Falhas (${failedCount})`;
-        showToast(`Lote finalizado com ${failedCount} falha(s). Clique em "Reenviar Falhas" para tentar novamente.`, 'warn', 7000);
-      } else {
-        updateBatchUI(state.batch.total, state.batch.total, 'Lote finalizado com sucesso!');
-        showToast('Envio em lote concluído com sucesso!', 'success');
-      }
-      setTimeout(() => el.batchCard.classList.add('hidden'), 6000);
-      updateSelectionButtons();
-    });
-
-    sse.addEventListener('batch_cancelled', (e) => {
-      const { index, total } = JSON.parse(e.data);
-      state.batch.isRunning = false;
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
-      showToast(`Lote interrompido após o item ${index}.`, 'info');
-      el.batchCard.classList.add('hidden');
-      updateSelectionButtons();
-    });
-
-    sse.onerror = () => {
-      console.warn('Conexão SSE perdida, tentando reconectar...');
-    };
-  }
-
-  // -------------------------------------------------------------
   // Pause Queue Action Buttons
   // -------------------------------------------------------------
-  async function sendQueueAction(action) {
-    try {
-      await fetch('/api/queue/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
-      });
-    } catch (err) {
-      showToast('Erro ao enviar ação: ' + err.message, 'error');
-    }
-  }
-
   if (el.btnQueueRetry) {
     el.btnQueueRetry.addEventListener('click', () => {
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
-      if (el.batchTitle) el.batchTitle.textContent = '⏳ Enviando em lote...';
-      sendQueueAction('retry');
+      if (batchPauseAction) batchPauseAction('retry');
     });
   }
-
   if (el.btnQueueSkip) {
     el.btnQueueSkip.addEventListener('click', () => {
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
-      if (el.batchTitle) el.batchTitle.textContent = '⏳ Enviando em lote...';
-      showToast('Arquivo ignorado, continuando com o próximo...', 'info');
-      sendQueueAction('skip');
+      if (batchPauseAction) batchPauseAction('skip');
     });
   }
-
   if (el.btnQueueCancel) {
     el.btnQueueCancel.addEventListener('click', () => {
-      if (el.batchPauseAlert) el.batchPauseAlert.classList.add('hidden');
-      sendQueueAction('cancel');
+      if (batchPauseAction) batchPauseAction('cancel');
     });
   }
 
   // "Reenviar Falhas" button
   if (el.btnRetryFailed) {
-    el.btnRetryFailed.addEventListener('click', async () => {
+    el.btnRetryFailed.addEventListener('click', () => {
       if (!state.batch.failedItems || state.batch.failedItems.length === 0) return;
       el.btnRetryFailed.classList.add('hidden');
-
       const itemsToRetry = [...state.batch.failedItems];
-
-      state.batch.isRunning = true;
-      state.batch.total = itemsToRetry.length;
-      state.batch.completed = 0;
-      state.batch.failedItems = [];
-
-      el.batchCard.classList.remove('hidden');
-      el.batchCard.scrollIntoView({ behavior: 'smooth' });
-      updateBatchUI(0, itemsToRetry.length, 'Reenviando arquivos com falha...');
-      updateSelectionButtons();
-
-      try {
-        const res = await fetch('/api/telegram/send-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: itemsToRetry })
-        });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error);
-      } catch (err) {
-        showToast('Erro ao reenviar falhas: ' + err.message, 'error');
-        state.batch.isRunning = false;
-        el.batchCard.classList.add('hidden');
-        updateSelectionButtons();
-      }
+      runBrowserBatch(itemsToRetry);
     });
   }
 
   // -------------------------------------------------------------
-  // Initial Boot
+  // Initial Boot  (no SSE needed in serverless mode)
   // -------------------------------------------------------------
   async function init() {
-    setupSSE();
     await loadConfig();
     await scanDriveFolder();
   }
