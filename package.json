@@ -1,0 +1,21 @@
+{
+  "name": "drive2telegram-audio",
+  "version": "1.0.0",
+  "description": "Transfira audiolivros e arquivos de áudio do Google Drive para o Telegram via Bot API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "telegram",
+    "google-drive",
+    "audiobook",
+    "audiolivro",
+    "bot",
+    "mp3"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
+

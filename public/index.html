@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drive2Telegram • Envio de Áudios e Audiolivros</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css?v=3">
+</head>
+<body>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Help & Tutorial Modal -->
+  <div id="help-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="flex items-center gap-3">
+          <div class="icon-circle icon-indigo">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          </div>
+          <h3>Como Configurar o Envio para o Telegram</h3>
+        </div>
+        <button id="close-modal-btn" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Criar o Bot no Telegram</h4>
+            <p>Abra o Telegram e pesquise por <strong>@BotFather</strong>. Envie o comando <code>/newbot</code>, escolha um nome e um username terminado em <code>bot</code> (ex: <code>meu_audiolivro_bot</code>). O BotFather fornecerá um <strong>Token de API</strong> (ex: <code>7123456789:AAH...</code>). Copie e cole na seção de configurações.</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Pegar o seu Chat ID ou ID do Canal</h4>
+            <p><strong>Para enviar no seu privado:</strong> Inicie uma conversa com o seu bot recém-criado (clique em <code>/start</code>). Para descobrir seu ID, chame o bot <strong>@userinfobot</strong> no Telegram e copie o <code>Id</code> numérico.</p>
+            <p><strong>Para enviar para um Canal ou Grupo:</strong> Adicione o seu bot como <strong>Administrador</strong> do canal (com permissão de postar mensagens). O Chat ID do canal público é o seu username (ex: <code>@meucanal</code>) ou o ID numérico negativo para canais privados (ex: <code>-100192837465</code>).</p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Pasta do Google Drive</h4>
+            <p>A pasta já vem pré-configurada com o link fornecido. Ela precisa estar com permissão <strong>"Qualquer pessoa com o link pode visualizar"</strong> no Drive. Clique em <strong>"Escanear Pasta"</strong> para listar os 12 capítulos em MP3 e clique em <strong>"Enviar Selecionados"</strong>.</p>
+          </div>
+        </div>
+
+        <div class="notice-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>
+            <strong>Limite do Telegram Bot API:</strong> Cada arquivo pode ter até <strong>50 MB</strong>. Os áudios desta pasta têm em média 15 a 20 MB, portanto estão 100% dentro do limite!
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-ok-btn" class="btn btn-primary w-full">Entendi, vamos começar!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navbar -->
+  <header class="app-header">
+    <div class="header-inner container">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+            <path d="M9.5 8.5l7 3.5-7 3.5v-7z" fill="currentColor"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">Drive<span class="text-indigo">2</span>Telegram <span class="badge-pro">ÁUDIO</span></div>
+          <div class="brand-sub">Transmissão Direta de Audiolivros do Google Drive</div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div id="bot-status-pill" class="status-pill status-pill-idle">
+          <span class="pulse-dot"></span>
+          <span id="bot-status-text">Telegram Desconectado</span>
+        </div>
+
+        <button id="help-btn" class="btn btn-secondary btn-sm" title="Tutorial passo a passo">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          <span>Tutorial</span>
+        </button>
+
+        <button id="toggle-settings-btn" class="btn btn-secondary btn-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Configurações</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main App Layout -->
+  <main class="container app-main">
+
+    <!-- Settings Accordion / Card -->
+    <section id="settings-card" class="card settings-card">
+      <div class="card-header cursor-pointer" id="settings-header">
+        <div class="flex items-center gap-3">
+          <div class="icon-circle icon-indigo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <div>
+            <h3>Configurações de Conexão</h3>
+            <p class="text-muted text-sm">Configure o Token do seu Bot do Telegram e a Pasta do Drive</p>
+          </div>
+        </div>
+        <div id="settings-chevron" class="chevron">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+
+      <div id="settings-content" class="settings-body">
+        <form id="config-form" class="grid-form">
+          
+          <!-- Telegram Section -->
+          <div class="form-group full-width">
+            <div class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              <span>Telegram Bot API</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-bot-token">
+              Token do Bot Telegram <span class="req">*</span>
+              <a href="#" class="help-link" id="token-help-link">(Onde pegar?)</a>
+            </label>
+            <div class="input-with-action">
+              <input type="password" id="cfg-bot-token" placeholder="ex: 1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ" autocomplete="off">
+              <button type="button" class="icon-toggle-btn" id="toggle-token-visibility" title="Mostrar/Ocultar">
+                <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <span class="field-hint">Fornecido pelo @BotFather ao criar o bot.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-chat-id">
+              Chat ID / Canal de Destino <span class="req">*</span>
+              <a href="#" class="help-link" id="chat-help-link">(Como achar?)</a>
+            </label>
+            <input type="text" id="cfg-chat-id" placeholder="ex: 987654321 ou @meucanal ou -100123456789">
+            <span class="field-hint">Seu ID numérico, ou @nomedocanal (bot deve ser administrador).</span>
+          </div>
+
+          <div class="form-group full-width flex-actions">
+            <button type="button" id="btn-test-telegram" class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span id="test-btn-text">Testar Bot & Enviar Msg de Teste</span>
+            </button>
+            <div id="test-feedback" class="test-feedback hidden"></div>
+          </div>
+
+          <!-- Google Drive Section -->
+          <div class="form-group full-width mt-4">
+            <div class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>Pasta do Google Drive</span>
+            </div>
+          </div>
+
+          <div class="form-group full-width">
+            <label for="cfg-folder-url">Link ou ID da Pasta do Drive <span class="req">*</span></label>
+            <input type="text" id="cfg-folder-url" value="https://drive.google.com/drive/folders/1y1VfI8OhAn_Uh44ogwDdYEBkCzCHnp07?usp=sharing">
+            <span class="field-hint">A pasta deve estar com permissão pública de visualização.</span>
+          </div>
+
+          <!-- Audio Metadata & Title Treatment Section -->
+          <div class="form-group full-width mt-4">
+            <div class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              <span>Tratamento de Títulos & Metadados do Audiolivro</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-title-format">Formato dos Títulos dos Capítulos</label>
+            <select id="cfg-title-format">
+              <option value="number_dash_name">04 - Prólogo (Número e Nome - Recomendado)</option>
+              <option value="with_capitulo">Capítulo 04 - Prólogo (Com 'Capítulo')</option>
+              <option value="name_only">Prólogo (Apenas o Nome do Capítulo)</option>
+              <option value="book_and_chapter">Livro - 04 - Prólogo (Prólogo + Livro)</option>
+              <option value="name_and_book">Prólogo - Livro (Nome + Livro, sem número)</option>
+              <option value="original">Original (Sem tratamento)</option>
+            </select>
+            <span class="field-hint">Limpa automaticamente prefixos da pasta e sufixos de voz.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-book-title">Nome do Livro / Audiolivro</label>
+            <input type="text" id="cfg-book-title" value="Filosofias da Afirmação e da Negação">
+            <span class="field-hint">Usado nas tags e na legenda <code>{book}</code>.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-performer">Nome do Narrador / Performer</label>
+            <input type="text" id="cfg-performer" value="Narrador do pica-pau" placeholder="ex: Narrador do pica-pau ou Audiolivro">
+            <span class="field-hint">Aparece como Artista/Narrador no player do Telegram.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-send-mode">Modo de Envio</label>
+            <select id="cfg-send-mode">
+              <option value="audio">Áudio (Player Nativo do Telegram com controle de velocidade)</option>
+              <option value="document">Documento (Arquivo original sem alteração de metadados)</option>
+            </select>
+            <span class="field-hint">Áudio é o modo ideal para audiolivros e músicas.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-caption">Modelo de Legenda</label>
+            <input type="text" id="cfg-caption" value="🎧 <b>{title}</b>&#10;📖 <i>{book}</i>&#10;🎙️ <i>{performer}</i>">
+            <span class="field-hint">Suporta <code>{title}</code>, <code>{book}</code>, <code>{performer}</code>, <code>{filename}</code> e tags HTML.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-delay">Intervalo entre envios (segundos)</label>
+            <input type="number" id="cfg-delay" min="1" max="30" value="3">
+            <span class="field-hint">Previne limite de taxa (rate limit/flood) da API do Telegram.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-max-retries">Tentativas Automáticas por Arquivo</label>
+            <input type="number" id="cfg-max-retries" min="1" max="10" value="3">
+            <span class="field-hint">Se falhar por rede ou limite, tenta novamente automaticamente.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-on-error">Se Todas as Tentativas Falharem</label>
+            <select id="cfg-on-error">
+              <option value="pause">Pausar a fila e me perguntar o que fazer (Recomendado)</option>
+              <option value="stop">Parar a fila imediatamente</option>
+              <option value="continue">Pular este arquivo e continuar para o próximo</option>
+            </select>
+            <span class="field-hint">Evita que a fila pule arquivos sem você saber.</span>
+          </div>
+
+          <div class="form-group full-width flex justify-end gap-3 mt-2">
+            <button type="submit" id="btn-save-config" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              <span>Salvar Configurações</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Global Progress Card (Appears during batch execution) -->
+    <section id="batch-progress-card" class="card batch-card hidden">
+      <div class="batch-card-header">
+        <div class="flex items-center gap-3">
+          <div class="spinner-ring"></div>
+          <div>
+            <h4 id="batch-title">Enviando Arquivos para o Telegram...</h4>
+            <p id="batch-subtitle" class="text-sm text-muted">Processando fila de audiolivros...</p>
+          </div>
+        </div>
+        <button id="btn-cancel-batch" class="btn btn-danger btn-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+          <span>Cancelar Envio</span>
+        </button>
+      </div>
+
+      <div class="batch-progress-wrapper">
+        <div class="batch-meta">
+          <span id="batch-progress-count">0 de 0 concluídos</span>
+          <span id="batch-progress-percent">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div id="batch-progress-fill" class="progress-bar-fill" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div id="batch-current-step" class="batch-current-step">
+        <span class="step-badge">Atual</span>
+        <span id="batch-current-text" class="text-sm">Iniciando fila...</span>
+      </div>
+
+      <!-- Pause on Error Alert Banner -->
+      <div id="batch-pause-alert" class="batch-pause-alert hidden">
+        <div class="pause-alert-header">
+          <div class="icon-circle icon-amber sm">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div>
+            <h5 class="pause-alert-title">Fila Pausada por Falha no Arquivo</h5>
+            <p id="pause-alert-message" class="text-xs text-muted">O arquivo falhou após todas as tentativas. O que deseja fazer?</p>
+          </div>
+        </div>
+        <div class="pause-actions">
+          <button type="button" id="btn-queue-retry" class="btn btn-primary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span>Tentar Este Novamente</span>
+          </button>
+          <button type="button" id="btn-queue-skip" class="btn btn-secondary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+            <span>Pular Este Arquivo</span>
+          </button>
+          <button type="button" id="btn-queue-cancel" class="btn btn-danger btn-sm">
+            <span>Cancelar Fila</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Audio Player Preview Bar (Floats or sticky when playing) -->
+    <div id="floating-audio-player" class="audio-player-bar hidden">
+      <div class="player-info">
+        <div class="icon-circle icon-indigo sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="track-meta">
+          <div id="player-track-name" class="track-name font-semibold text-sm truncate">Nome da faixa</div>
+          <div class="track-status text-xs text-muted">Prévia em streaming do Google Drive</div>
+        </div>
+      </div>
+      <audio id="global-audio-element" controls preload="none" class="browser-audio-player"></audio>
+      <button id="close-player-btn" class="close-btn sm" title="Fechar reprodutor">&times;</button>
+    </div>
+
+    <!-- Main Explorer Section -->
+    <section class="card explorer-card">
+      <div class="explorer-header">
+        
+        <!-- Quick Folder Switcher Bar -->
+        <div class="quick-folder-bar">
+          <div class="folder-input-wrapper">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <input type="text" id="quick-folder-url" placeholder="Cole qualquer link ou ID de pasta pública do Google Drive aqui...">
+          </div>
+          <button id="btn-quick-load-folder" class="btn btn-secondary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span>Carregar Pasta</span>
+          </button>
+        </div>
+
+        <!-- Book Presets / Quick Folders -->
+        <div class="recent-folders-row">
+          <span class="text-xs text-muted">Pastas Rápidas:</span>
+          <button type="button" class="preset-pill" data-url="https://drive.google.com/drive/folders/1y1VfI8OhAn_Uh44ogwDdYEBkCzCHnp07?usp=sharing" data-book="Filosofias da Afirmação e da Negação">
+            📖 Filosofias da Afirmação (12 áudios)
+          </button>
+          <button type="button" class="preset-pill" data-url="https://drive.google.com/drive/folders/1o5Kva9uVNw9qO3QJU7wrtNCpK8H-WkVf?usp=sharing" data-book="The International Jew - Henry Ford">
+            📖 The International Jew - Henry Ford (86 áudios)
+          </button>
+        </div>
+
+        <div class="folder-title-row">
+          <div class="folder-info">
+            <div class="folder-badge">PASTA GOOGLE DRIVE</div>
+            <h2 id="display-folder-title">Filosofias da Afirmação e da Negação</h2>
+            <p id="display-folder-stats" class="text-sm text-muted">Carregando lista de arquivos...</p>
+          </div>
+          <div class="explorer-top-actions">
+            <button id="btn-scan-drive" class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Escanear Pasta</span>
+            </button>
+            <button id="btn-retry-failed" class="btn btn-danger hidden">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span id="btn-retry-failed-text">Reenviar Falhas (0)</span>
+            </button>
+            <button id="btn-send-selected" class="btn btn-primary" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z"/></svg>
+              <span id="btn-send-selected-text">Enviar Selecionados (0)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter & Search Controls -->
+        <div class="explorer-controls">
+          <div class="search-box">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="file-search-input" placeholder="Filtrar por nome do capítulo ou arquivo...">
+          </div>
+
+          <div class="filter-pills">
+            <div class="filter-pill">
+              <span class="text-xs text-muted">Estilo do Título:</span>
+              <select id="quick-title-format" class="quick-select">
+                <option value="number_dash_name">04 - Prólogo (Padrão)</option>
+                <option value="with_capitulo">Capítulo 04 - Prólogo</option>
+                <option value="name_only">Prólogo (Sem número)</option>
+                <option value="book_and_chapter">Livro - 04 - Prólogo</option>
+                <option value="name_and_book">Prólogo - Livro (sem número)</option>
+                <option value="original">Original (Cru)</option>
+              </select>
+            </div>
+            <label class="filter-pill">
+              <input type="checkbox" id="filter-audio-only" checked>
+              <span>Apenas Áudios (.mp3)</span>
+            </label>
+            <div class="selection-actions">
+              <button id="btn-select-all" class="text-btn">Selecionar Todos</button>
+              <span class="divider">•</span>
+              <button id="btn-deselect-all" class="text-btn">Desmarcar Todos</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Files List Table / Grid -->
+      <div class="files-container">
+        <div id="files-loading" class="empty-state">
+          <div class="spinner-ring lg"></div>
+          <h4>Carregando arquivos do Google Drive...</h4>
+          <p class="text-muted text-sm">Consultando os capítulos da pasta pública...</p>
+        </div>
+
+        <div id="files-empty" class="empty-state hidden">
+          <div class="icon-circle icon-indigo lg">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <h4>Nenhum arquivo encontrado</h4>
+          <p class="text-muted text-sm">Verifique o link da pasta ou clique em Escanear Pasta.</p>
+        </div>
+
+        <div id="files-list" class="files-list"></div>
+      </div>
+    </section>
+
+    <!-- Real-Time Activity Log Console -->
+    <section class="card log-card">
+      <div class="log-header" id="log-header">
+        <div class="flex items-center gap-2">
+          <span class="status-indicator-dot"></span>
+          <span class="font-mono text-sm font-semibold">Terminal de Logs em Tempo Real</span>
+          <span id="log-count-badge" class="badge-count">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-clear-logs" class="text-btn sm">Limpar</button>
+          <div id="log-chevron" class="chevron">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+      </div>
+      <div id="log-body" class="log-body">
+        <div id="log-console" class="log-console font-mono text-xs">
+          <div class="log-entry log-info">[Sistema] Drive2Telegram pronto. Aguardando comando...</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer container">
+    <p>Drive2Telegram • Envio Automatizado de Audiolivros • Feito para Telegram Bot API</p>
+  </footer>
+
+  <script src="/app.js?v=3"></script>
+</body>
+</html>
+

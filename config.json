@@ -1,0 +1,16 @@
+{
+  "botToken": "8972120301:AAEzDggS8VGeqmq5_zB1Xa6-HwRS_n_ggp4",
+  "chatId": "-5574691115",
+  "folderUrl": "https://drive.google.com/drive/folders/1o5Kva9uVNw9qO3QJU7wrtNCpK8H-WkVf?usp=sharing",
+  "folderId": "1y1VfI8OhAn_Uh44ogwDdYEBkCzCHnp07",
+  "googleApiKey": "",
+  "performer": "Jack",
+  "bookTitle": "The International Jew - Henry Ford",
+  "sendMode": "audio",
+  "captionTemplate": "🎧 <b>{title}</b>",
+  "delaySeconds": 3,
+  "maxRetries": 3,
+  "onErrorAction": "pause",
+  "cleanTitles": true,
+  "titleFormat": "name_and_book"
+}
